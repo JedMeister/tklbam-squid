@@ -26,7 +26,6 @@ Depends:
  ${misc:Depends},
  netbase,
  tklbam-squid-common (>= ${source:Version}),
- turnkey-pylib,
  ${shlibs:Depends},
 Description: TKLBAM embedded Internet object cache (WWW proxy cache)
  This package provides the Squid Internet Object Cache developed by
