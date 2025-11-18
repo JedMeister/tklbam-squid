@@ -15,6 +15,7 @@ Build-Depends:
  linux-libc-dev,
  po-debconf,
  sharutils,
+Rules-Requires-Root: binary-targets
 
 Package: tklbam-squid
 Architecture: any
