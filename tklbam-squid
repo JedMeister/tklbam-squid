@@ -19,15 +19,24 @@ Environment variables:
 
 """
 
-import os
 import sys
+sys.path = [
+    '',
+    '/usr/lib/tklbam',
+    '/usr/lib/tklbam/deps/lib',
+    '/usr/lib/tklbam-pypy2/lib_pypy',
+    '/usr/lib/tklbam-pypy2/lib-python/2.7',
+    '/usr/lib/tklbam-pypy2/site-packages',
+]
+
+import os
 import string
 import statvfs
 
 import re
 
-from executil import system
-from temp import TempFile
+from pylib.executil import system
+from pylib.temp import TempFile
 
 import pwd
 
