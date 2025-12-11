@@ -1,8 +1,9 @@
-#!/usr/bin/python2
+#!/usr/bin/python3
 """
 Runs a squid instance to cache TKLBAM's duplicity archives
 Arguments:
 
+    -h | --help         Show this help and exit
     <http_port>         [hostname:]port (e.g., 3128, 127.0.0.1:33128)
     <cachesize>         Size of squid cache (can be absolute or relative size)
 
@@ -13,9 +14,9 @@ Arguments:
 
 Environment variables:
 
-    TKLBAM_SQUID_CACHE_DIR      location of cache dir (default: %s)
-    TKLBAM_SQUID_USER           user under which we execute squid (default: %s)
-    TKLBAM_SQUID_BIN            path to tklbam squid binary (default: %s)
+    TKLBAM_SQUID_CACHE_DIR      location of cache dir (default: {0})
+    TKLBAM_SQUID_USER           user under which we execute squid (default: {1})
+    TKLBAM_SQUID_BIN            path to tklbam squid binary (default: {2})
 
 """
 
@@ -23,11 +24,9 @@ import os
 import pwd
 import re
 import string
+import subprocess
 import sys
-
-import statvfs
-from executil import system
-from temp import TempFile
+from tempfile import NamedTemporaryFile
 
 TKLBAM_SQUID_BIN = "/usr/lib/tklbam/deps"
 TKLBAM_SQUID_CACHE_DIR = "/var/spool/tklbam-squid"
@@ -68,13 +67,13 @@ class Error(Exception):
     pass
 
 
-def get_freespace(path):
+def get_freespace(path: str) -> int:
     stats = os.statvfs(path)
-    freespace = stats[statvfs.F_BFREE] * stats[statvfs.F_BSIZE]
+    freespace = stats.f_bfree * stats.f_bsize
     return freespace
 
 
-def parse_cache_size(sizestr, cache_dir):
+def parse_cache_size(sizestr: str, cache_dir: str) -> int:
     """Parse cache size string and return the size of the cache in megabytes.
 
     Valid format examples:
@@ -113,15 +112,17 @@ def parse_cache_size(sizestr, cache_dir):
         percent = int(m.group(1))
         if percent > 100 or percent < 0:
             raise Error(
-                "bad percent %d%% - should be between 0 and 100" % percent
+                f"bad percent {percent}% - should be between 0 and 100"
             )
 
-        return int((get_freespace(cache_dir) * percent / 100.0) / (1024 * 1024))
+        return int(
+            (get_freespace(cache_dir) * percent / 100.0) / (1024 * 1024)
+        )
 
     raise Error(f"illegal cache_size value '{sizestr}'")
 
 
-def user_exists(user) -> bool | None:
+def user_exists(user: str) -> bool | None:
     try:
         pwd.getpwnam(user)
         return True
@@ -129,45 +130,49 @@ def user_exists(user) -> bool | None:
         return False
 
 
-def is_other_user(user) -> bool:
+def is_other_user(user: str) -> bool:
     if pwd.getpwnam(user).pw_uid == os.getuid():
         return False
     else:
         return True
 
 
-def usage(e=None) -> None:
+def usage(e: str | None = None) -> None:
     if e:
-        print("error: " + str(e), file=sys.stderr)
+        print(f"error: {e}", file=sys.stderr)
     print(f"Syntax: {sys.argv[0]} <http_port> <cache_size>", file=sys.stderr)
     print(
-        __doc__.strip()
-        % (TKLBAM_SQUID_CACHE_DIR, TKLBAM_SQUID_USER, TKLBAM_SQUID_BIN),
+        __doc__.strip().format(
+            TKLBAM_SQUID_CACHE_DIR, TKLBAM_SQUID_USER, TKLBAM_SQUID_BIN
+        ),
         file=sys.stderr,
     )
     sys.exit(1)
 
 
-def fatal(e) -> None:
-    print("error: " + str(e), file=sys.stderr)
+def fatal(e: str) -> None:
+    print(f"error: {e}", file=sys.stderr)
     sys.exit(1)
 
 
 def main() -> None:
     args = sys.argv[1:]
-    if len(args) != 2:
+    if any(_help in sys.argv for _help in ["-h", "--help"]):
+        usage()
+    elif len(args) != 2:
         usage("incorrect number of arguments")
 
     user = os.environ.get("TKLBAM_SQUID_USER", TKLBAM_SQUID_USER)
     if not user_exists(user):
         fatal(f"no such user '{user}'")
 
-    cache_dir = os.environ.get("TKLBAM_SQUID_CACHE_DIR", TKLBAM_SQUID_CACHE_DIR)
-    if os.path.exists(cache_dir):
-        if not os.path.isdir(cache_dir):
-            usage(f"'{cache_dir}' - not a directory")
+    cache_dir = os.environ.get(
+        "TKLBAM_SQUID_CACHE_DIR", TKLBAM_SQUID_CACHE_DIR
+    )
+    if os.path.exists(cache_dir) and not os.path.isdir(cache_dir):
+        usage(f"'{cache_dir}' exists but is not a directory")
     else:
-        os.makedirs(cache_dir)
+        os.makedirs(cache_dir, exist_ok=True)
 
     os.chmod(cache_dir, 0o750)
     if is_other_user(user):
@@ -198,14 +203,33 @@ def main() -> None:
         MAXIMUM_OBJECT_SIZE=maximum_object_size,
     )
 
-    conf_tmp = TempFile("tklbam-squid-conf-")
-    file(conf_tmp.path, "w").write(conf)
-    os.chmod(conf_tmp.path, 0o644)
-
+    # TKLBAM currently uses a custom (legacy) squid build
+    #
+    # if/when it is replaced with a default squid install, '-D' will need to be
+    # dropped as an option. As of Trixie (squid v6.13) '-D' is ignored and is
+    # slated for removal in future versions. Disabling DNS needs to be done via
+    # ACLs in config file - see: https://wiki.squid-cache.org/SquidFaq/SquidAcl
     squid_bin = os.environ.get("TKLBAM_SQUID_BIN", TKLBAM_SQUID_BIN)
-    system(f"{squid_bin} -f {conf_tmp.path} -z")
-    system(f"{squid_bin} -f {conf_tmp.path} -N -D -d 1")
-
+    with NamedTemporaryFile(
+        "w", prefix="tklbam-squid-conf-", delete_on_close=False
+    ) as tmp_fob:
+        os.chmod(tmp_fob.name, 0o644)
+        tmp_fob.write(conf)
+        tmp_fob.close()
+        try:
+            # args:
+            # -f <conf>     - use <conf> instead of default config file
+            # -z            - create swap directories
+            subprocess.run([squid_bin, "-f", tmp_fob.name, "-z"], check=True)
+            # -N            - no daemon mode
+            # -D            - disable initial DNS tests
+            # -d <level>    - write debugging to stderr also
+            subprocess.run(
+                [squid_bin, "-f", tmp_fob.name, "-N", "-D", "-d", "1"],
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            raise Error(e)
 
 if __name__ == "__main__":
     main()
