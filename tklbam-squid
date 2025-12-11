@@ -140,13 +140,13 @@ def is_other_user(user):
 
 def usage(e=None):
     if e:   
-        print >> sys.stderr, "error: " + str(e)
-    print >> sys.stderr, "Syntax: %s <http_port> <cache_size>" % sys.argv[0]
-    print >> sys.stderr, __doc__.strip() % (TKLBAM_SQUID_CACHE_DIR, TKLBAM_SQUID_USER, TKLBAM_SQUID_BIN)
+        print("error: " + str(e), file=sys.stderr)
+    print("Syntax: %s <http_port> <cache_size>" % sys.argv[0], file=sys.stderr)
+    print(__doc__.strip() % (TKLBAM_SQUID_CACHE_DIR, TKLBAM_SQUID_USER, TKLBAM_SQUID_BIN), file=sys.stderr)
     sys.exit(1)
 
 def fatal(e):
-    print >> sys.stderr, "error: " + str(e)
+    print("error: " + str(e), file=sys.stderr)
     sys.exit(1)
 
 def main():
@@ -165,7 +165,7 @@ def main():
     else:
         os.makedirs(cache_dir)
 
-    os.chmod(cache_dir, 0750)
+    os.chmod(cache_dir, 0o750)
     if is_other_user(user):
         pw = pwd.getpwnam(user)
         os.chown(cache_dir, pw.pw_uid, pw.pw_gid)
@@ -179,7 +179,7 @@ def main():
     conf_tpl = string.Template(TKLBAM_CONF_TPL)
 
     if cache_size > 2000 and (not sys.maxsize > 2 ** 32):
-        print >> sys.stderr, "Detected 32-bit system, limiting maximum_object_size to 2000 MB"
+        print("Detected 32-bit system, limiting maximum_object_size to 2000 MB", file=sys.stderr)
         maximum_object_size = 2000
     else:
         maximum_object_size = cache_size
@@ -191,7 +191,7 @@ def main():
 
     conf_tmp = TempFile("tklbam-squid-conf-")
     file(conf_tmp.path, "w").write(conf)
-    os.chmod(conf_tmp.path, 0644)
+    os.chmod(conf_tmp.path, 0o644)
 
     squid_bin = os.environ.get('TKLBAM_SQUID_BIN', TKLBAM_SQUID_BIN)
     system("%s -f %s -z" % (squid_bin, conf_tmp.path))
